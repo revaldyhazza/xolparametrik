@@ -204,7 +204,7 @@ if uploaded_file is not None:
                         str(best_params)
                     ]
                 })
-                st.table(best_dist_df.reset_index(drop=True))
+                st.dataframe(best_dist_df, hide_index=True)
 
                 # Visualisasi 3 distribusi terbaik
                 st.subheader("Plot Distribusi Terbaik")
@@ -293,7 +293,7 @@ if uploaded_file is not None:
                         })
                         stats_df['Data Asli'] = stats_df['Data Asli'].map('{:.4f}'.format)
                         stats_df['Simulasi'] = stats_df['Simulasi'].map('{:.4f}'.format)
-                        st.table(stats_df)
+                        st.dataframe(stats_df, hide_index=True)
                         
                         # Alokasi klaim ke UR dan layer
                         st.subheader("Alokasi Klaim Simulasi ke UR dan Layer")
@@ -362,12 +362,12 @@ if uploaded_file is not None:
                                 else:
                                     rol[f'Layer {i}'] = 0
                             rol_df = pd.DataFrame({
-                                'Layer 1 (%)': [f"{rol['Layer 1']:.2f}"],
-                                'Layer 2 (%)': [f"{rol['Layer 2']:.2f}"],
-                                'Layer 3 (%)': [f"{rol['Layer 3']:.2f}"],
-                                'Layer 4 (%)': [f"{rol['Layer 4']:.2f}"],
-                                'Layer 5 (%)': [f"{rol['Layer 5']:.2f}"],
-                                'Layer 6 (%)': [f"{rol['Layer 6']:.2f}"]
+                                'Layer 1 (%)': [f"{rol['Layer 1']:,.2f}"],
+                                'Layer 2 (%)': [f"{rol['Layer 2']:,.2f}"],
+                                'Layer 3 (%)': [f"{rol['Layer 3']:,.2f}"],
+                                'Layer 4 (%)': [f"{rol['Layer 4']:,.2f}"],
+                                'Layer 5 (%)': [f"{rol['Layer 5']:,.2f}"],
+                                'Layer 6 (%)': [f"{rol['Layer 6']:,.2f}"]
                             })
                             st.subheader("Rate On Line (RoL)")
                             st.dataframe(rol_df, use_container_width=True, hide_index=True)
@@ -377,7 +377,7 @@ if uploaded_file is not None:
                             st.info(f"Premi Minimum Deposit yang harus dibayarkan adalah {int(min_deposit_premium) if min_deposit_premium.is_integer() else min_deposit_premium:.2f}")
                         
                         # Download hasil simulasi ke Excel
-                        sim_df = pd.DataFrame(simulated_data, columns=['Simulated_Value'])
+                        sim_df = pd.DataFrame(simulated_data, columns=['Klaim Acak'])
                         sim_df = pd.concat([sim_df, claims_df], axis=1)
                         sim_df = sim_df.apply(lambda x: x.map(lambda y: int(y) if y.is_integer() else y))
                         
@@ -390,7 +390,7 @@ if uploaded_file is not None:
                         st.download_button(
                             label="Unduh Hasil Simulasi dan Alokasi Klaim (Excel)",
                             data=excel_data,
-                            file_name=f"monte_carlo_simulation_seed_{seed_value}.xlsx",
+                            file_name=f"Simulasi Monte Carlo Distribusi {selected_dist} Seed: {seed_value}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
 
