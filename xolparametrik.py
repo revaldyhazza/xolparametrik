@@ -16,12 +16,11 @@ distribution_names = {
     'lognorm': 'Distribusi Lognormal',
     'gamma': 'Distribusi Gamma',
     'pareto': 'Distribusi Pareto',
-    'expon': 'Distribusi Eksponensial',
-    'chi2': 'Distribusi Chi-Square'
+    'expon': 'Distribusi Eksponensial'
 }
 
 # Daftar distribusi yang akan digunakan
-distributions = ['weibull_min', 'lognorm', 'gamma', 'pareto', 'expon', 'chi2']
+distributions = ['weibull_min', 'lognorm', 'gamma', 'pareto', 'expon']
 
 # Fungsi untuk menghitung metrik
 def calculate_metrics(data, dist_name, params):
@@ -46,7 +45,10 @@ def calculate_metrics(data, dist_name, params):
     # Kolmogorov-Smirnov (KS) Statistic
     ks_stat, _ = stats.ks_2samp(data, fitted_data)
     
-    # Skewness dan Kurtosis
+    # Mean, Variansi, Standar Deviasi, Skewness, dan Kurtosis
+    mean = np.mean(fitted_data)
+    variance = np.var(fitted_data)
+    std_dev = np.std(fitted_data)
     skewness = stats.skew(fitted_data)
     kurtosis = stats.kurtosis(fitted_data)
     
@@ -56,6 +58,9 @@ def calculate_metrics(data, dist_name, params):
         'AIC': aic,
         'BIC': bic,
         'KS': ks_stat,
+        'Mean': mean,
+        'Variance': variance,
+        'Std Dev': std_dev,
         'Skewness': skewness,
         'Kurtosis': kurtosis
     }
@@ -106,18 +111,18 @@ def allocate_claims(simulated_data, ur, layers):
     return pd.DataFrame(results)
 
 # Judul aplikasi
-st.title("Fitting Distribusi dan Simulasi Monte Carlo dengan Seed")
-st.write("Unggah file CSV atau Excel, pilih kolom untuk fitting distribusi, dan lakukan simulasi Monte Carlo dengan seed yang dapat diatur.")
+st.title("Pricing Reasuransi Excess of Loss (XoL) Metode Parametrik")
+st.write("Silakan unggah file dengan format .csv/.xls/.xlsx, pilih kolom untuk dilakukan fitting distribusi, dan lakukan simulasi Monte Carlo menggunakan distribusi yang dapat dipilih dengan seed yang dapat diatur.")
 
 # Upload file
-uploaded_file = st.file_uploader("Unggah file data (CSV atau Excel)", type=["csv", "xlsx", "xls"])
+uploaded_file = st.file_uploader("Unggah file data", type=["csv", "xlsx", "xls"])
 
 if uploaded_file is not None:
     # Membaca file dengan caching
     try:
         df = load_data(uploaded_file)
         
-        st.write("Pratinjau Data:")
+        st.write("Preview Data:")
         st.dataframe(df, hide_index=True)
 
         # Pilih kolom
@@ -166,6 +171,9 @@ if uploaded_file is not None:
                     'AIC': [metrics['AIC'] for _, metrics in sorted_distributions],
                     'BIC': [metrics['BIC'] for _, metrics in sorted_distributions],
                     'KS': [metrics['KS'] for _, metrics in sorted_distributions],
+                    'Mean': [metrics['Mean'] for _, metrics in sorted_distributions],
+                    'Variance': [metrics['Variance'] for _, metrics in sorted_distributions],
+                    'Std Dev': [metrics['Std Dev'] for _, metrics in sorted_distributions],
                     'Skewness': [metrics['Skewness'] for _, metrics in sorted_distributions],
                     'Kurtosis': [metrics['Kurtosis'] for _, metrics in sorted_distributions],
                     'Parameter': [f.fitted_param.get(dist, {}) for dist, _ in sorted_distributions]
@@ -173,14 +181,14 @@ if uploaded_file is not None:
                 st.dataframe(summary_df, hide_index=True)
 
                 # Distribusi terbaik berdasarkan RMSE dalam bentuk tabel
-                st.subheader("Distribusi Terbaik (Berdasarkan RMSE)")
+                st.subheader("Urutan Distribusi Terbaik")
                 best_dist_name, best_metrics = sorted_distributions[0]
                 best_params = f.fitted_param.get(best_dist_name, {})
                 friendly_name = distribution_names.get(best_dist_name, best_dist_name)
                 
                 # Membuat tabel untuk distribusi terbaik
                 best_dist_df = pd.DataFrame({
-                    'Metrik': ['Distribusi', 'RMSE', 'Log-Likelihood', 'AIC', 'BIC', 'KS Statistic', 'Skewness', 'Kurtosis', 'Parameter'],
+                    'Metrik': ['Distribusi', 'RMSE', 'Log-Likelihood', 'AIC', 'BIC', 'KS Statistic', 'Mean', 'Variance', 'Std Dev', 'Skewness', 'Kurtosis', 'Parameter'],
                     'Nilai': [
                         friendly_name,
                         f"{best_metrics['RMSE']:.4f}",
@@ -188,12 +196,15 @@ if uploaded_file is not None:
                         'N/A' if np.isnan(best_metrics['AIC']) else f"{best_metrics['AIC']:.4f}",
                         'N/A' if np.isnan(best_metrics['BIC']) else f"{best_metrics['BIC']:.4f}",
                         f"{best_metrics['KS']:.4f}",
+                        f"{best_metrics['Mean']:.4f}",
+                        f"{best_metrics['Variance']:.4f}",
+                        f"{best_metrics['Std Dev']:.4f}",
                         f"{best_metrics['Skewness']:.4f}",
                         f"{best_metrics['Kurtosis']:.4f}",
                         str(best_params)
                     ]
                 })
-                st.table(best_dist_df)
+                st.table(best_dist_df.reset_index(drop=True))
 
                 # Visualisasi 3 distribusi terbaik
                 st.subheader("Plot Distribusi Terbaik")
@@ -207,10 +218,10 @@ if uploaded_file is not None:
                 # Pilih distribusi untuk simulasi Monte Carlo
                 st.subheader("Simulasi Monte Carlo")
                 dist_options = [distribution_names.get(dist, dist) for dist in distributions if dist in f.fitted_param]
-                selected_dist = st.selectbox("Pilih distribusi untuk simulasi Monte Carlo", dist_options)
+                selected_dist = st.selectbox("Pilih distribusi untuk dilakukan simulasi Monte Carlo", dist_options)
                 
                 # Slider untuk mengatur seed
-                seed_value = st.slider("Atur Seed untuk Simulasi Monte Carlo", min_value=0, max_value=1000, value=42, step=1)
+                seed_value = st.slider("Atur seed untuk Simulasi Monte Carlo", min_value=0, max_value=1000, value=42, step=1)
                 
                 # Input untuk UR dan Layer 1-6
                 st.subheader("Masukkan Nilai UR dan Layer Excess of Loss")
@@ -238,14 +249,14 @@ if uploaded_file is not None:
                 st.dataframe(layers_df, use_container_width=True, hide_index=True)
                 
                 # Input untuk Risk Adjustment, Profit, Operating Expenses, dan Komisi
-                st.subheader("Masukkan Parameter Persentase (%)")
+                st.subheader("Faktor Loading (%)")
                 risk_adjustment = st.number_input("Risk Adjustment (%)", min_value=0, value=10, step=1, format="%d") / 100
                 profit = st.number_input("Profit (%)", min_value=0, value=5, step=1, format="%d") / 100
                 operating_expenses = st.number_input("Operating Expenses (%)", min_value=0, value=5, step=1, format="%d") / 100
                 komisi = st.number_input("Komisi (%)", min_value=0, value=2, step=1, format="%d") / 100
                 
                 # Tampilkan parameter persentase secara horizontal
-                st.subheader("Parameter Persentase yang Dimasukkan")
+                st.subheader("Parameter Loading yang telah diinput")
                 percentages_df = pd.DataFrame({
                     'Risk Adjustment (%)': [int(risk_adjustment * 100)],
                     'Profit (%)': [int(profit * 100)],
@@ -258,14 +269,14 @@ if uploaded_file is not None:
                 dist_name = [k for k, v in distribution_names.items() if v == selected_dist][0]
                 
                 # Jalankan simulasi Monte Carlo
-                if st.button("Jalankan Simulasi Monte Carlo (1000 Iterasi)"):
+                if st.button("Run Simulasi Monte Carlo"):
                     with st.spinner("Menjalankan simulasi Monte Carlo..."):
                         params = f.fitted_param[dist_name]
                         n_iterations = 1000
                         simulated_data = monte_carlo_simulation(dist_name, params, n_iterations=n_iterations, seed=seed_value)
                         
                         # Visualisasi hasil simulasi
-                        st.subheader(f"Hasil Simulasi Monte Carlo (Seed: {seed_value})")
+                        st.subheader(f"Hasil Simulasi Monte Carlo (Distribusi {selected_dist} Seed: {seed_value})")
                         fig, ax = plt.subplots(figsize=(10, 6))
                         sns.histplot(simulated_data, kde=True, stat="density", bins=150, ax=ax)
                         ax.set_title(f'Histogram Hasil Simulasi Monte Carlo ({selected_dist}, Seed: {seed_value})')
@@ -289,7 +300,7 @@ if uploaded_file is not None:
                         claims_df = allocate_claims(simulated_data, ur, layers)
                         
                         # Tampilkan beberapa baris pertama dan rata-rata
-                        st.write("Pratinjau Alokasi Klaim (5 baris pertama):")
+                        st.write("Preview Alokasi Klaim:")
                         claims_df_display = claims_df.apply(lambda x: x.map(lambda y: int(y) if y.is_integer() else y))
                         st.dataframe(claims_df_display, hide_index=True)
                         st.write("Rata-rata Alokasi Klaim:")
