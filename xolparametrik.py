@@ -224,13 +224,6 @@ if uploaded_file is not None:
                 
                 layers = [layer_1, layer_2, layer_3, layer_4, layer_5, layer_6]
                 
-                # Input untuk Risk Adjustment, Profit, Operating Expenses, dan Komisi
-                st.subheader("Masukkan Parameter Persentase (%)")
-                risk_adjustment = st.number_input("Risk Adjustment (%)", min_value=0, value=10, step=1, format="%d") / 100
-                profit = st.number_input("Profit (%)", min_value=0, value=5, step=1, format="%d") / 100
-                operating_expenses = st.number_input("Operating Expenses (%)", min_value=0, value=5, step=1, format="%d") / 100
-                komisi = st.number_input("Komisi (%)", min_value=0, value=2, step=1, format="%d") / 100
-                
                 # Tampilkan nilai UR dan Layer secara horizontal
                 st.subheader("Nilai UR dan Layer yang Dimasukkan")
                 layers_df = pd.DataFrame({
@@ -243,6 +236,23 @@ if uploaded_file is not None:
                     'Layer 6': [layer_6]
                 })
                 st.dataframe(layers_df, use_container_width=True, hide_index=True)
+                
+                # Input untuk Risk Adjustment, Profit, Operating Expenses, dan Komisi
+                st.subheader("Masukkan Parameter Persentase (%)")
+                risk_adjustment = st.number_input("Risk Adjustment (%)", min_value=0, value=10, step=1, format="%d") / 100
+                profit = st.number_input("Profit (%)", min_value=0, value=5, step=1, format="%d") / 100
+                operating_expenses = st.number_input("Operating Expenses (%)", min_value=0, value=5, step=1, format="%d") / 100
+                komisi = st.number_input("Komisi (%)", min_value=0, value=2, step=1, format="%d") / 100
+                
+                # Tampilkan parameter persentase secara horizontal
+                st.subheader("Parameter Persentase yang Dimasukkan")
+                percentages_df = pd.DataFrame({
+                    'Risk Adjustment (%)': [int(risk_adjustment * 100)],
+                    'Profit (%)': [int(profit * 100)],
+                    'Operating Expenses (%)': [int(operating_expenses * 100)],
+                    'Komisi (%)': [int(komisi * 100)]
+                })
+                st.dataframe(percentages_df, use_container_width=True, hide_index=True)
                 
                 # Mendapatkan nama distribusi asli dari pilihan pengguna
                 dist_name = [k for k, v in distribution_names.items() if v == selected_dist][0]
@@ -333,20 +343,20 @@ if uploaded_file is not None:
                             st.subheader("Premi Excess of Loss (XoL)")
                             st.dataframe(xol_premium_df, use_container_width=True, hide_index=True)
                             
-                            # Hitung Rate On Line
+                            # Hitung Rate On Line dalam persentase
                             rol = {}
                             for i, layer_value in enumerate(layers, 1):
                                 if layer_value > 0:
-                                    rol[f'Layer {i}'] = xol_premium[f'Layer {i}'] / (layer_value * n_iterations)
+                                    rol[f'Layer {i}'] = 100 * (xol_premium[f'Layer {i}'] / (layer_value * n_iterations))
                                 else:
                                     rol[f'Layer {i}'] = 0
                             rol_df = pd.DataFrame({
-                                'Layer 1': [rol['Layer 1']],
-                                'Layer 2': [rol['Layer 2']],
-                                'Layer 3': [rol['Layer 3']],
-                                'Layer 4': [rol['Layer 4']],
-                                'Layer 5': [rol['Layer 5']],
-                                'Layer 6': [rol['Layer 6']]
+                                'Layer 1 (%)': [f"{rol['Layer 1']:.2f}"],
+                                'Layer 2 (%)': [f"{rol['Layer 2']:.2f}"],
+                                'Layer 3 (%)': [f"{rol['Layer 3']:.2f}"],
+                                'Layer 4 (%)': [f"{rol['Layer 4']:.2f}"],
+                                'Layer 5 (%)': [f"{rol['Layer 5']:.2f}"],
+                                'Layer 6 (%)': [f"{rol['Layer 6']:.2f}"]
                             })
                             st.subheader("Rate On Line (RoL)")
                             st.dataframe(rol_df, use_container_width=True, hide_index=True)
