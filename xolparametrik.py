@@ -30,30 +30,33 @@ def calculate_manual_parameters(data, dist_name):
             if np.any(data <= 0):
                 raise ValueError("Data mengandung nilai nol atau negatif, tidak valid untuk Lognormal.")
             log_data = np.log(data)
-            mu = np.mean(log_data)
-            sigma = np.std(log_data)
+            mu = np.mean(log_data)  # Mean dari log(data) untuk LOGNORM.INV
+            sigma = np.std(log_data)  # Std dev dari log(data) untuk LOGNORM.INV
             if np.isnan(mu) or np.isnan(sigma):
                 raise ValueError("Gagal menghitung mu atau sigma untuk Lognormal.")
-            return (sigma, mu), {'sigma': sigma, 'mu': mu}  # Return sigma, mu for Lognormal simulation
+            # Parameter untuk stats.lognorm: s=sigma, loc=0, scale=exp(mu)
+            return (sigma, 0, np.exp(mu)), {'sigma': sigma, 'mu': mu}
         
         elif dist_name == 'gamma':
             mean_data = np.mean(data)
             var_data = np.var(data)
             if var_data == 0:
                 raise ValueError("Variansi data nol, tidak dapat menghitung parameter Gamma.")
-            alpha = (mean_data ** 2) / var_data
-            beta = var_data / mean_data
+            alpha = (mean_data ** 2) / var_data  # Shape parameter untuk GAMMA.INV
+            beta = var_data / mean_data  # Scale parameter untuk GAMMA.INV
             if np.isnan(alpha) or np.isnan(beta):
                 raise ValueError("Gagal menghitung alpha atau beta untuk Gamma.")
+            # Parameter untuk stats.gamma: a=alpha, loc=0, scale=beta
             return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
         
         elif dist_name == 'pareto':
-            # Gunakan nilai minimum positif sebagai beta, atau tambahkan offset kecil jika ada nilai nol/negatif
-            beta = np.min(data[data > 0]) if np.any(data > 0) else np.min(data) + 1e-6
+            if np.any(data <= 0):
+                raise ValueError("Data mengandung nilai nol atau negatif, tidak valid untuk Pareto.")
+            beta = np.min(data)
             log_term = np.log(data / beta)
             if np.any(np.isnan(log_term)) or np.any(np.isinf(log_term)):
                 raise ValueError("Gagal menghitung log(data/beta) untuk Pareto.")
-            alpha = 1 / np.mean(log_term[log_term > 0]) if np.any(log_term > 0) else np.nan
+            alpha = 1 / np.mean(log_term)
             if np.isnan(alpha):
                 raise ValueError("Gagal menghitung alpha untuk Pareto.")
             return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
@@ -80,21 +83,14 @@ def calculate_metrics(data, dist_name, params, seed=42):
     
     # Set seed untuk data acak
     np.random.seed(seed)
-    if dist_name == 'lognorm':
-        sigma, mu = params
-        fitted_data = np.exp(mu + sigma * np.random.normal(size=len(data)))
-    else:
-        fitted_data = dist.rvs(*params, size=len(data))
+    fitted_data = dist.rvs(*params, size=len(data))
     
     # RMSE
     rmse = np.sqrt(np.mean((data - fitted_data) ** 2))
     
     # Log-Likelihood
     try:
-        if dist_name == 'lognorm':
-            log_likelihood = np.sum(stats.lognorm.logpdf(data, sigma, loc=0, scale=np.exp(mu)))
-        else:
-            log_likelihood = np.sum(dist.logpdf(data, *params))
+        log_likelihood = np.sum(dist.logpdf(data, *params))
     except:
         log_likelihood = np.nan
     
@@ -139,11 +135,13 @@ def load_data(uploaded_file):
 # Fungsi untuk fitting distribusi dengan caching
 @st.cache_data
 def fit_distributions(data, distributions, _timeout=60):
-    # Validasi data hanya untuk Lognormal
     valid_distributions = distributions.copy()
     if 'lognorm' in valid_distributions and np.any(data <= 0):
         st.warning("Data mengandung nilai nol atau negatif. Distribusi Lognormal hanya mendukung data positif. Menghapus Lognormal dari fitting.")
         valid_distributions.remove('lognorm')
+    if 'pareto' in valid_distributions and np.any(data <= 0):
+        st.warning("Data mengandung nilai nol atau negatif. Distribusi Pareto hanya mendukung data positif. Menghapus Pareto dari fitting.")
+        valid_distributions.remove('pareto')
     
     if not valid_distributions:
         st.error("Tidak ada distribusi yang valid untuk di-fit ke data ini.")
@@ -156,12 +154,18 @@ def fit_distributions(data, distributions, _timeout=60):
 # Fungsi untuk simulasi Monte Carlo dengan seed
 def monte_carlo_simulation(dist_name, params, n_iterations=1000, seed=42):
     np.random.seed(seed)  # Mengatur seed untuk reproduksibilitas
+    dist = getattr(stats, dist_name)
+    
     if dist_name == 'lognorm':
-        # Lognormal: Generate using exp(mu + sigma * Z) like Excel NORM.INV
-        sigma, mu = params
-        simulated_data = np.exp(mu + sigma * np.random.normal(size=n_iterations))
+        # Untuk LOGNORM.INV: parameter adalah (s=sigma, loc=0, scale=exp(mu))
+        simulated_data = dist.rvs(*params, size=n_iterations)
+    
+    elif dist_name == 'gamma':
+        # Untuk GAMMA.INV: parameter adalah (a=alpha, loc=0, scale=beta)
+        simulated_data = dist.rvs(*params, size=n_iterations)
+    
     else:
-        dist = getattr(stats, dist_name)
+        # Untuk Pareto, Eksponensial, Weibull: gunakan parameter seperti biasa
         simulated_data = dist.rvs(*params, size=n_iterations)
     
     # Validasi hasil simulasi
@@ -201,28 +205,22 @@ st.write("Silakan unggah file dengan format .csv/.xls/.xlsx, pilih kolom untuk d
 uploaded_file = st.file_uploader("Unggah file data", type=["csv", "xlsx", "xls"])
 
 if uploaded_file is not None:
-    # Membaca file dengan caching
     try:
         df = load_data(uploaded_file)
         
         st.write("Preview Data:")
         st.dataframe(df, hide_index=True)
 
-        # Pilih kolom
         numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
         if numeric_columns:
             selected_column = st.selectbox("Pilih kolom untuk fitting distribusi", numeric_columns)
-            
-            # Ambil data dari kolom yang dipilih
             data = df[selected_column].dropna().values
 
             if len(data) > 0:
-                # Menampilkan mean dan standard deviation
                 st.subheader("Statistik Data")
                 st.write(f"**Rata-rata (Mean):** {np.mean(data):.4f}")
                 st.write(f"**Standar Deviasi (Std Dev):** {np.std(data):.4f}")
 
-                # Visualisasi histogram data
                 st.subheader("Histogram Data")
                 fig, ax = plt.subplots(figsize=(10, 6))
                 sns.histplot(data, kde=True, stat="density", bins=150, ax=ax)
@@ -231,29 +229,24 @@ if uploaded_file is not None:
                 ax.set_ylabel('Densitas')
                 st.pyplot(fig)
 
-                # Fitting distribusi dengan caching
                 st.subheader("Proses Fitting Distribusi")
                 with st.spinner("Sedang melakukan fitting distribusi..."):
                     f = fit_distributions(data, distributions, _timeout=60)
 
-                # Cek apakah ada distribusi yang berhasil di-fit
                 if not f.fitted_param:
                     st.error("Tidak ada distribusi yang berhasil di-fit ke data ini. Silakan cek data atau coba distribusi lain.")
                     st.stop()
 
-                # Ringkasan semua distribusi diurutkan berdasarkan RMSE
                 st.subheader("Ringkasan Semua Distribusi (Diurutkan Berdasarkan RMSE)")
                 metrics_scores = {}
                 for dist_name in distributions:
                     if dist_name in f.fitted_param:
-                        # Gunakan parameter manual, bukan dari fitter
                         params, _ = calculate_manual_parameters(data, dist_name)
                         if params is None:
                             continue
                         metrics = calculate_metrics(data, dist_name, params, seed=42)
                         metrics_scores[dist_name] = metrics
                 
-                # Urutkan berdasarkan RMSE
                 sorted_distributions = sorted(metrics_scores.items(), key=lambda x: x[1]['RMSE'])
                 summary_df = pd.DataFrame({
                     'Distribusi': [distribution_names.get(dist, dist) for dist, _ in sorted_distributions],
@@ -271,7 +264,6 @@ if uploaded_file is not None:
                 })
                 st.dataframe(summary_df, hide_index=True)
 
-                # Distribusi terbaik berdasarkan RMSE dalam bentuk tabel
                 st.subheader("Informasi terkait Distribusi Terbaik")
                 best_dist_name, best_metrics = sorted_distributions[0]
                 best_params, best_params_display = calculate_manual_parameters(data, best_dist_name)
@@ -280,7 +272,6 @@ if uploaded_file is not None:
                     st.stop()
                 friendly_name = distribution_names.get(best_dist_name, best_dist_name)
                 
-                # Membuat tabel untuk distribusi terbaik
                 best_dist_df = pd.DataFrame({
                     'Metrik': ['Distribusi', 'RMSE', 'Log-Likelihood', 'AIC', 'BIC', 'KS Statistic', 'Mean', 'Variance', 'Std Dev', 'Skewness', 'Kurtosis', 'Parameter'],
                     'Nilai': [
@@ -300,7 +291,6 @@ if uploaded_file is not None:
                 })
                 st.table(best_dist_df)
 
-                # Visualisasi 3 distribusi terbaik
                 st.subheader("Plot Distribusi Terbaik")
                 plt.figure(figsize=(10, 6))
                 f.plot_pdf(Nbest=3)
@@ -309,12 +299,10 @@ if uploaded_file is not None:
                 plt.ylabel('Densitas')
                 st.pyplot(plt.gcf())
 
-                # Pilih distribusi untuk simulasi Monte Carlo
                 st.subheader("Simulasi Monte Carlo")
                 dist_options = [distribution_names[dist] for dist in distributions if dist in f.fitted_param]
                 selected_dist = st.selectbox("Pilih distribusi untuk dilakukan simulasi Monte Carlo", dist_options)
                 
-                # Mendapatkan nama distribusi asli dan parameter
                 dist_name = [k for k, v in distribution_names.items() if v == selected_dist][0]
                 params_simulasi, params_display = calculate_manual_parameters(data, dist_name)
                 
@@ -322,7 +310,6 @@ if uploaded_file is not None:
                     st.error(f"Tidak dapat melanjutkan simulasi karena parameter untuk {selected_dist} tidak valid.")
                     st.stop()
                 
-                # Tampilkan parameter distribusi yang dipilih dengan format yang lebih jelas
                 st.markdown(f"### Parameter untuk Distribusi {selected_dist}")
                 params_df = pd.DataFrame({
                     'Parameter': list(params_display.keys()),
@@ -330,12 +317,9 @@ if uploaded_file is not None:
                 })
                 st.dataframe(params_df, use_container_width=True, hide_index=True)
                 
-                # Slider untuk mengatur seed
                 seed_value = st.slider("Atur seed untuk Simulasi Monte Carlo", min_value=0, max_value=1000, value=42, step=1)
                 
-                # Input untuk UR dan Layer 1-6
                 st.subheader("Masukkan Nilai UR dan Layer Excess of Loss")
-                # Tambah info rentang nilai data
                 min_value = np.min(data)
                 max_value = np.max(data)
                 st.info(f"Data yang diunggah memiliki rentang nilai dari {min_value:,.0f} sampai {max_value:,.0f}.")
@@ -350,7 +334,6 @@ if uploaded_file is not None:
                 
                 layers = [layer_1, layer_2, layer_3, layer_4, layer_5, layer_6]
                 
-                # Tampilkan nilai UR dan Layer secara horizontal
                 st.subheader("Nilai UR dan Layer yang Dimasukkan")
                 layers_df = pd.DataFrame({
                     'UR': [ur],
@@ -363,14 +346,12 @@ if uploaded_file is not None:
                 })
                 st.dataframe(layers_df, use_container_width=True, hide_index=True)
                 
-                # Input untuk Risk Adjustment, Profit, Operating Expenses, dan Komisi
                 st.subheader("Faktor Loading (%)")
                 risk_adjustment = st.number_input("Risk Adjustment (%)", min_value=0, value=10, step=1, format="%d") / 100
                 profit = st.number_input("Profit (%)", min_value=0, value=5, step=1, format="%d") / 100
                 operating_expenses = st.number_input("Operating Expenses (%)", min_value=0, value=5, step=1, format="%d") / 100
                 komisi = st.number_input("Komisi (%)", min_value=0, value=2, step=1, format="%d") / 100
                 
-                # Tampilkan parameter persentase secara horizontal
                 st.subheader("Parameter Loading yang telah diinput")
                 percentages_df = pd.DataFrame({
                     'Risk Adjustment (%)': [int(risk_adjustment * 100)],
@@ -380,7 +361,6 @@ if uploaded_file is not None:
                 })
                 st.dataframe(percentages_df, use_container_width=True, hide_index=True)
                 
-                # Jalankan simulasi Monte Carlo
                 if st.button("Run Simulasi Monte Carlo"):
                     with st.spinner("Menjalankan simulasi Monte Carlo..."):
                         n_iterations = 1000
@@ -389,7 +369,6 @@ if uploaded_file is not None:
                         if simulated_data is None:
                             st.stop()
                         
-                        # Visualisasi hasil simulasi
                         st.subheader(f"Hasil Simulasi Monte Carlo (Distribusi {selected_dist} Seed: {seed_value})")
                         fig, ax = plt.subplots(figsize=(10, 6))
                         sns.histplot(simulated_data, kde=True, stat="density", bins=150, ax=ax)
@@ -398,7 +377,6 @@ if uploaded_file is not None:
                         ax.set_ylabel('Densitas')
                         st.pyplot(fig)
                         
-                        # Tabel perbandingan statistik
                         st.subheader("Perbandingan Statistik Data Asli dan Simulasi")
                         stats_df = pd.DataFrame({
                             'Statistik': ['Rata-rata', 'Standar Deviasi'],
@@ -409,11 +387,9 @@ if uploaded_file is not None:
                         stats_df['Simulasi'] = stats_df['Simulasi'].map('{:.4f}'.format)
                         st.dataframe(stats_df, hide_index=True)
                         
-                        # Alokasi klaim ke UR dan layer
                         st.subheader("Alokasi Klaim Simulasi ke UR dan Layer")
                         claims_df = allocate_claims(simulated_data, ur, layers)
                         
-                        # Tampilkan beberapa baris pertama dan rata-rata
                         st.write("Preview Alokasi Klaim:")
                         claims_df_display = claims_df.apply(lambda x: x.map(lambda y: int(y) if y.is_integer() else y))
                         st.dataframe(claims_df_display, hide_index=True)
@@ -430,7 +406,7 @@ if uploaded_file is not None:
                         })
                         st.dataframe(avg_claims_df, use_container_width=True, hide_index=True)
                         
-                        # Hitung Risk Premium
+                        st.subheader("Risk Premium")
                         risk_premium = avg_claims * n_iterations
                         risk_premium_df = pd.DataFrame({
                             'UR': [int(risk_premium['UR']) if risk_premium['UR'].is_integer() else risk_premium['UR']],
@@ -441,10 +417,9 @@ if uploaded_file is not None:
                             'Layer 5': [int(risk_premium['Layer 5']) if risk_premium['Layer 5'].is_integer() else risk_premium['Layer 5']],
                             'Layer 6': [int(risk_premium['Layer 6']) if risk_premium['Layer 6'].is_integer() else risk_premium['Layer 6']]
                         })
-                        st.subheader("Risk Premium")
                         st.dataframe(risk_premium_df, use_container_width=True, hide_index=True)
                         
-                        # Hitung Premi XoL
+                        st.subheader("Premi Excess of Loss (XoL)")
                         denominator_ur = 1 - profit - operating_expenses
                         denominator_layers = 1 - profit - operating_expenses - komisi
                         if denominator_ur <= 0:
@@ -465,10 +440,9 @@ if uploaded_file is not None:
                                 'Layer 5': [int(xol_premium['Layer 5']) if xol_premium['Layer 5'].is_integer() else xol_premium['Layer 5']],
                                 'Layer 6': [int(xol_premium['Layer 6']) if xol_premium['Layer 6'].is_integer() else xol_premium['Layer 6']]
                             })
-                            st.subheader("Premi Excess of Loss (XoL)")
                             st.dataframe(xol_premium_df, use_container_width=True, hide_index=True)
                             
-                            # Hitung Rate On Line dalam persentase
+                            st.subheader("Rate On Line (RoL)")
                             rol = {}
                             for i, layer_value in enumerate(layers, 1):
                                 if layer_value > 0:
@@ -483,19 +457,15 @@ if uploaded_file is not None:
                                 'Layer 5 (%)': [f"{rol['Layer 5']:,.2f}"],
                                 'Layer 6 (%)': [f"{rol['Layer 6']:,.2f}"]
                             })
-                            st.subheader("Rate On Line (RoL)")
                             st.dataframe(rol_df, use_container_width=True, hide_index=True)
                             
-                            # Hitung Premi Minimum Deposit
                             min_deposit_premium = xol_premium[['Layer 1', 'Layer 2', 'Layer 3', 'Layer 4', 'Layer 5', 'Layer 6']].sum()
                             st.info(f"Premi Minimum Deposit yang harus dibayarkan adalah {int(min_deposit_premium) if min_deposit_premium.is_integer() else min_deposit_premium:,.2f}")
                         
-                        # Download hasil simulasi ke Excel
                         sim_df = pd.DataFrame(simulated_data, columns=['Klaim Acak'])
                         sim_df = pd.concat([sim_df, claims_df], axis=1)
                         sim_df = sim_df.apply(lambda x: x.map(lambda y: int(y) if y.is_integer() else y))
                         
-                        # Buat buffer untuk file Excel
                         output = io.BytesIO()
                         with pd.ExcelWriter(output, engine='openpyxl') as writer:
                             sim_df.to_excel(writer, index=False, sheet_name='Simulation_Results')
