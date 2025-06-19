@@ -177,10 +177,15 @@ if uploaded_file is not None:
                 with st.spinner("Sedang melakukan fitting distribusi..."):
                     f = fit_distributions(data, distributions, _timeout=60)
 
+                # Cek apakah ada distribusi yang berhasil di-fit
+                if not f.fitted_param:
+                    st.error("Tidak ada distribusi yang berhasil di-fit ke data ini. Silakan cek data atau coba distribusi lain.")
+                    st.stop()
+
                 # Ringkasan semua distribusi diurutkan berdasarkan RMSE
                 st.subheader("Ringkasan Semua Distribusi (Diurutkan Berdasarkan RMSE)")
                 metrics_scores = {}
-                for dist_name in f._fitted_dists:  # Gunakan distribusi yang berhasil di-fit
+                for dist_name in f.fitted_param.keys():  # Gunakan fitted_param.keys()
                     params = f.fitted_param[dist_name]
                     metrics = calculate_metrics(data, dist_name, params)
                     metrics_scores[dist_name] = metrics
@@ -240,7 +245,7 @@ if uploaded_file is not None:
 
                 # Pilih distribusi untuk simulasi Monte Carlo
                 st.subheader("Simulasi Monte Carlo")
-                dist_options = [distribution_names.get(dist, dist) for dist in f._fitted_dists]
+                dist_options = [distribution_names.get(dist, dist) for dist in f.fitted_param.keys()]  # Gunakan fitted_param.keys()
                 selected_dist = st.selectbox("Pilih distribusi untuk dilakukan simulasi Monte Carlo", dist_options)
                 
                 # Slider untuk mengatur seed
