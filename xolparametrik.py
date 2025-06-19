@@ -23,13 +23,42 @@ distribution_names = {
 # Daftar distribusi yang akan digunakan
 distributions = ['weibull_min', 'lognorm', 'gamma', 'pareto', 'expon']
 
+# Fungsi untuk menghitung parameter secara manual
+def calculate_manual_parameters(data, dist_name):
+    if dist_name == 'lognorm':
+        # Lognormal: mu = mean(ln(data)), sigma = std(ln(data))
+        log_data = np.log(data)
+        mu = np.mean(log_data)
+        sigma = np.std(log_data)
+        return (sigma, 0, np.exp(mu)), {'sigma': sigma, 'mu': mu}  # Return params for simulation and display
+    
+    elif dist_name == 'gamma':
+        # Gamma: alpha = mean^2/variance, beta = variance/mean
+        mean_data = np.mean(data)
+        var_data = np.var(data)
+        alpha = (mean_data ** 2) / var_data
+        beta = var_data / mean_data
+        return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
+    
+    elif dist_name == 'pareto':
+        # Pareto: beta = min(data), alpha = 1/mean(ln(data/beta))
+        beta = np.min(data)
+        alpha = 1 / np.mean(np.log(data / beta))
+        return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
+    
+    elif dist_name == 'expon':
+        # Exponential: theta = mean(data)
+        theta = np.mean(data)
+        return (0, theta), {'theta': theta}
+    
+    elif dist_name == 'weibull_min':
+        # Weibull: Use scipy.stats.weibull_min.fit
+        shape, loc, scale = stats.weibull_min.fit(data)
+        return (shape, loc, scale), {'shape': shape, 'loc': loc, 'scale': scale}
+
 # Fungsi untuk menghitung metrik
 def calculate_metrics(data, dist_name, params, seed=42):
     dist = getattr(stats, dist_name)
-    
-    # Untuk Lognormal, paksa loc=0 untuk memastikan nilai positif
-    if dist_name == 'lognorm':
-        params = (params[0], 0, params[2])  # s, loc=0, scale
     
     # Set seed untuk data acak
     np.random.seed(seed)
@@ -85,11 +114,14 @@ def load_data(uploaded_file):
 # Fungsi untuk fitting distribusi dengan caching
 @st.cache_data
 def fit_distributions(data, distributions, _timeout=60):
-    # Validasi data untuk Lognormal
+    # Validasi data untuk Lognormal dan Pareto
     valid_distributions = distributions.copy()
     if 'lognorm' in valid_distributions and np.any(data <= 0):
         st.warning("Data mengandung nilai nol atau negatif. Distribusi Lognormal hanya mendukung data positif. Menghapus Lognormal dari fitting.")
         valid_distributions.remove('lognorm')
+    if 'pareto' in valid_distributions and np.any(data <= 0):
+        st.warning("Data mengandung nilai nol atau negatif. Distribusi Pareto hanya mendukung data positif. Menghapus Pareto dari fitting.")
+        valid_distributions.remove('pareto')
     
     if not valid_distributions:
         st.error("Tidak ada distribusi yang valid untuk di-fit ke data ini.")
@@ -103,10 +135,6 @@ def fit_distributions(data, distributions, _timeout=60):
 def monte_carlo_simulation(dist_name, params, n_iterations=1000, seed=42):
     np.random.seed(seed)  # Mengatur seed untuk reproduksibilitas
     dist = getattr(stats, dist_name)
-    
-    # Untuk Lognormal, paksa loc=0
-    if dist_name == 'lognorm':
-        params = (params[0], 0, params[2])  # s, loc=0, scale
     
     simulated_data = dist.rvs(*params, size=n_iterations)
     
@@ -192,7 +220,8 @@ if uploaded_file is not None:
                 metrics_scores = {}
                 for dist_name in distributions:
                     if dist_name in f.fitted_param:
-                        params = f.fitted_param[dist_name]
+                        # Gunakan parameter manual, bukan dari fitter
+                        params, _ = calculate_manual_parameters(data, dist_name)
                         metrics = calculate_metrics(data, dist_name, params, seed=42)
                         metrics_scores[dist_name] = metrics
                 
@@ -210,14 +239,14 @@ if uploaded_file is not None:
                     'Std Dev': [metrics['Std Dev'] for _, metrics in sorted_distributions],
                     'Skewness': [metrics['Skewness'] for _, metrics in sorted_distributions],
                     'Kurtosis': [metrics['Kurtosis'] for _, metrics in sorted_distributions],
-                    'Parameter': [f.fitted_param.get(dist, {}) for dist, _ in sorted_distributions]
+                    'Parameter': [calculate_manual_parameters(data, dist)[1] for dist, _ in sorted_distributions]
                 })
                 st.dataframe(summary_df, hide_index=True)
 
                 # Distribusi terbaik berdasarkan RMSE dalam bentuk tabel
                 st.subheader("Informasi terkait Distribusi Terbaik")
                 best_dist_name, best_metrics = sorted_distributions[0]
-                best_params = f.fitted_param.get(best_dist_name, {})
+                best_params, best_params_display = calculate_manual_parameters(data, best_dist_name)
                 friendly_name = distribution_names.get(best_dist_name, best_dist_name)
                 
                 # Membuat tabel untuk distribusi terbaik
@@ -235,7 +264,7 @@ if uploaded_file is not None:
                         f"{best_metrics['Std Dev']:.4f}",
                         f"{best_metrics['Skewness']:.4f}",
                         f"{best_metrics['Kurtosis']:.4f}",
-                        str(best_params)
+                        str(best_params_display)
                     ]
                 })
                 st.table(best_dist_df)
@@ -251,8 +280,20 @@ if uploaded_file is not None:
 
                 # Pilih distribusi untuk simulasi Monte Carlo
                 st.subheader("Simulasi Monte Carlo")
-                dist_options = [distribution_names.get(dist, dist) for dist in distributions if dist in f.fitted_param]
+                dist_options = [distribution_names[dist] for dist in distributions if dist in f.fitted_param]
                 selected_dist = st.selectbox("Pilih distribusi untuk dilakukan simulasi Monte Carlo", dist_options)
+                
+                # Mendapatkan nama distribusi asli dan parameter
+                dist_name = [k for k, v in distribution_names.items() if v == selected_dist][0]
+                params_simulasi, params_display = calculate_manual_parameters(data, dist_name)
+                
+                # Tampilkan parameter distribusi yang dipilih
+                st.subheader(f"Parameter untuk Distribusi {selected_dist}")
+                params_df = pd.DataFrame({
+                    'Parameter': list(params_display.keys()),
+                    'Nilai': [f"{value:.4f}" for value in params_display.values()]
+                })
+                st.table(params_df)
                 
                 # Slider untuk mengatur seed
                 seed_value = st.slider("Atur seed untuk Simulasi Monte Carlo", min_value=0, max_value=1000, value=42, step=1)
@@ -304,15 +345,11 @@ if uploaded_file is not None:
                 })
                 st.dataframe(percentages_df, use_container_width=True, hide_index=True)
                 
-                # Mendapatkan nama distribusi asli dari pilihan pengguna
-                dist_name = [k for k, v in distribution_names.items() if v == selected_dist][0]
-                
                 # Jalankan simulasi Monte Carlo
                 if st.button("Run Simulasi Monte Carlo"):
                     with st.spinner("Menjalankan simulasi Monte Carlo..."):
-                        params = f.fitted_param[dist_name]
                         n_iterations = 1000
-                        simulated_data = monte_carlo_simulation(dist_name, params, n_iterations=n_iterations, seed=seed_value)
+                        simulated_data = monte_carlo_simulation(dist_name, params_simulasi, n_iterations=n_iterations, seed=seed_value)
                         
                         if simulated_data is None:
                             st.stop()
