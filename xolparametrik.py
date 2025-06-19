@@ -178,7 +178,7 @@ if uploaded_file is not None:
                     'Kurtosis': [metrics['Kurtosis'] for _, metrics in sorted_distributions],
                     'Parameter': [f.fitted_param.get(dist, {}) for dist, _ in sorted_distributions]
                 })
-                st.dataframe(summary_df, hide_index=True)
+                st.table(summary_df)
 
                 # Distribusi terbaik berdasarkan RMSE dalam bentuk tabel
                 st.subheader("Informasi terkait Distribusi Terbaik")
