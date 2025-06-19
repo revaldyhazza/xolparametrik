@@ -225,6 +225,11 @@ if uploaded_file is not None:
                 
                 # Input untuk UR dan Layer 1-6
                 st.subheader("Masukkan Nilai UR dan Layer Excess of Loss")
+                # Tambah info rentang nilai data
+                min_value = np.min(data)
+                max_value = np.max(data)
+                st.info(f"Data yang diunggah memiliki rentang nilai dari {min_value:,.0f} sampai {max_value:,.0f}.")
+                
                 ur = st.number_input("Ultimate Retention (UR)", min_value=0, step=200, format="%d")
                 layer_1 = st.number_input("Layer 1", min_value=0, step=200, format="%d")
                 layer_2 = st.number_input("Layer 2", min_value=0, step=200, format="%d")
@@ -374,7 +379,7 @@ if uploaded_file is not None:
                             
                             # Hitung Premi Minimum Deposit
                             min_deposit_premium = xol_premium[['Layer 1', 'Layer 2', 'Layer 3', 'Layer 4', 'Layer 5', 'Layer 6']].sum()
-                            st.info(f"Premi Minimum Deposit yang harus dibayarkan adalah {int(min_deposit_premium) if min_deposit_premium.is_integer() else min_deposit_premium:.2f}")
+                            st.info(f"Premi Minimum Deposit yang harus dibayarkan adalah {int(min_deposit_premium) if min_deposit_premium.is_integer() else min_deposit_premium:,.2f}")
                         
                         # Download hasil simulasi ke Excel
                         sim_df = pd.DataFrame(simulated_data, columns=['Klaim Acak'])
