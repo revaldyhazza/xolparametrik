@@ -181,7 +181,7 @@ if uploaded_file is not None:
                 st.dataframe(summary_df, hide_index=True)
 
                 # Distribusi terbaik berdasarkan RMSE dalam bentuk tabel
-                st.subheader("Urutan Distribusi Terbaik")
+                st.subheader("Informasi terkait Distribusi Terbaik")
                 best_dist_name, best_metrics = sorted_distributions[0]
                 best_params = f.fitted_param.get(best_dist_name, {})
                 friendly_name = distribution_names.get(best_dist_name, best_dist_name)
@@ -204,7 +204,7 @@ if uploaded_file is not None:
                         str(best_params)
                     ]
                 })
-                st.dataframe(best_dist_df, hide_index=True)
+                st.table(best_dist_df)
 
                 # Visualisasi 3 distribusi terbaik
                 st.subheader("Plot Distribusi Terbaik")
