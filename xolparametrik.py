@@ -26,10 +26,6 @@ distributions = ['weibull_min', 'lognorm', 'gamma', 'pareto', 'expon']
 def calculate_metrics(data, dist_name, params):
     dist = getattr(stats, dist_name)
     
-    # Untuk Lognormal, paksa loc=0 untuk memastikan nilai positif
-    if dist_name == 'lognorm':
-        params = (params[0], 0, params[2])  # s, loc=0, scale
-    
     # RMSE
     fitted_data = dist.rvs(*params, size=len(data))
     rmse = np.sqrt(np.mean((data - fitted_data) ** 2))
@@ -81,16 +77,7 @@ def load_data(uploaded_file):
 # Fungsi untuk fitting distribusi dengan caching
 @st.cache_data
 def fit_distributions(data, distributions, _timeout=60):
-    # Validasi data untuk Lognormal
-    valid_distributions = distributions.copy()
-    if 'lognorm' in valid_distributions and np.any(data <= 0):
-        st.warning("Data mengandung nilai nol atau negatif. Distribusi Lognormal hanya mendukung data positif. Menghapus Lognormal dari fitting.")
-        valid_distributions.remove('lognorm')
-    
-    if not valid_distributions:
-        raise ValueError("Tidak ada distribusi yang valid untuk di-fit ke data ini.")
-    
-    f = Fitter(data, distributions=valid_distributions, timeout=_timeout)
+    f = Fitter(data, distributions=distributions, timeout=_timeout)
     f.fit()
     return f
 
@@ -98,18 +85,7 @@ def fit_distributions(data, distributions, _timeout=60):
 def monte_carlo_simulation(dist_name, params, n_iterations=1000, seed=42):
     np.random.seed(seed)  # Mengatur seed untuk reproduksibilitas
     dist = getattr(stats, dist_name)
-    
-    # Untuk Lognormal, paksa loc=0
-    if dist_name == 'lognorm':
-        params = (params[0], 0, params[2])  # s, loc=0, scale
-    
     simulated_data = dist.rvs(*params, size=n_iterations)
-    
-    # Validasi hasil simulasi
-    if np.any(simulated_data <= 0):
-        st.error(f"Simulasi Monte Carlo untuk {dist_name} menghasilkan nilai nol atau negatif. Ini tidak valid untuk distribusi ini.")
-        return None
-    
     return simulated_data
 
 # Fungsi untuk alokasi klaim ke UR dan layer
@@ -177,18 +153,14 @@ if uploaded_file is not None:
                 with st.spinner("Sedang melakukan fitting distribusi..."):
                     f = fit_distributions(data, distributions, _timeout=60)
 
-                # Cek apakah ada distribusi yang berhasil di-fit
-                if not f.fitted_param:
-                    st.error("Tidak ada distribusi yang berhasil di-fit ke data ini. Silakan cek data atau coba distribusi lain.")
-                    st.stop()
-
                 # Ringkasan semua distribusi diurutkan berdasarkan RMSE
                 st.subheader("Ringkasan Semua Distribusi (Diurutkan Berdasarkan RMSE)")
                 metrics_scores = {}
-                for dist_name in f.fitted_param.keys():  # Gunakan fitted_param.keys()
-                    params = f.fitted_param[dist_name]
-                    metrics = calculate_metrics(data, dist_name, params)
-                    metrics_scores[dist_name] = metrics
+                for dist_name in distributions:
+                    if dist_name in f.fitted_param:
+                        params = f.fitted_param[dist_name]
+                        metrics = calculate_metrics(data, dist_name, params)
+                        metrics_scores[dist_name] = metrics
                 
                 # Urutkan berdasarkan RMSE
                 sorted_distributions = sorted(metrics_scores.items(), key=lambda x: x[1]['RMSE'])
@@ -245,7 +217,7 @@ if uploaded_file is not None:
 
                 # Pilih distribusi untuk simulasi Monte Carlo
                 st.subheader("Simulasi Monte Carlo")
-                dist_options = [distribution_names.get(dist, dist) for dist in f.fitted_param.keys()]  # Gunakan fitted_param.keys()
+                dist_options = [distribution_names.get(dist, dist) for dist in distributions if dist in f.fitted_param]
                 selected_dist = st.selectbox("Pilih distribusi untuk dilakukan simulasi Monte Carlo", dist_options)
                 
                 # Slider untuk mengatur seed
@@ -307,9 +279,6 @@ if uploaded_file is not None:
                         params = f.fitted_param[dist_name]
                         n_iterations = 1000
                         simulated_data = monte_carlo_simulation(dist_name, params, n_iterations=n_iterations, seed=seed_value)
-                        
-                        if simulated_data is None:
-                            st.stop()
                         
                         # Visualisasi hasil simulasi
                         st.subheader(f"Hasil Simulasi Monte Carlo (Distribusi {selected_dist} Seed: {seed_value})")
