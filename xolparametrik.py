@@ -8,6 +8,7 @@ import scipy.stats as stats
 import warnings
 import io
 
+st.set_page_config(page_title="Pricing XoL Parametrik", layout="wide")
 warnings.filterwarnings('ignore')
 
 # Kamus untuk nama distribusi yang ramah pengguna
