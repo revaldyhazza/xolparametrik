@@ -23,38 +23,57 @@ distribution_names = {
 # Daftar distribusi yang akan digunakan
 distributions = ['weibull_min', 'lognorm', 'gamma', 'pareto', 'expon']
 
-# Fungsi untuk menghitung parameter secara manual
+# Fungsi untuk menghitung parameter secara manual dengan error handling
 def calculate_manual_parameters(data, dist_name):
-    if dist_name == 'lognorm':
-        # Lognormal: mu = mean(ln(data)), sigma = std(ln(data))
-        log_data = np.log(data)
-        mu = np.mean(log_data)
-        sigma = np.std(log_data)
-        return (sigma, 0, np.exp(mu)), {'sigma': sigma, 'mu': mu}  # Return params for simulation and display
-    
-    elif dist_name == 'gamma':
-        # Gamma: alpha = mean^2/variance, beta = variance/mean
-        mean_data = np.mean(data)
-        var_data = np.var(data)
-        alpha = (mean_data ** 2) / var_data
-        beta = var_data / mean_data
-        return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
-    
-    elif dist_name == 'pareto':
-        # Pareto: beta = min(data), alpha = 1/mean(ln(data/beta))
-        beta = np.min(data)
-        alpha = 1 / np.mean(np.log(data / beta))
-        return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
-    
-    elif dist_name == 'expon':
-        # Exponential: theta = mean(data)
-        theta = np.mean(data)
-        return (0, theta), {'theta': theta}
-    
-    elif dist_name == 'weibull_min':
-        # Weibull: Use scipy.stats.weibull_min.fit
-        shape, loc, scale = stats.weibull_min.fit(data)
-        return (shape, loc, scale), {'shape': shape, 'loc': loc, 'scale': scale}
+    try:
+        if dist_name == 'lognorm':
+            if np.any(data <= 0):
+                raise ValueError("Data mengandung nilai nol atau negatif, tidak valid untuk Lognormal.")
+            log_data = np.log(data)
+            mu = np.mean(log_data)
+            sigma = np.std(log_data)
+            if np.isnan(mu) or np.isnan(sigma):
+                raise ValueError("Gagal menghitung mu atau sigma untuk Lognormal.")
+            return (sigma, 0, np.exp(mu)), {'sigma': sigma, 'mu': mu}
+        
+        elif dist_name == 'gamma':
+            mean_data = np.mean(data)
+            var_data = np.var(data)
+            if var_data == 0:
+                raise ValueError("Variansi data nol, tidak dapat menghitung parameter Gamma.")
+            alpha = (mean_data ** 2) / var_data
+            beta = var_data / mean_data
+            if np.isnan(alpha) or np.isnan(beta):
+                raise ValueError("Gagal menghitung alpha atau beta untuk Gamma.")
+            return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
+        
+        elif dist_name == 'pareto':
+            if np.any(data <= 0):
+                raise ValueError("Data mengandung nilai nol atau negatif, tidak valid untuk Pareto.")
+            beta = np.min(data)
+            log_term = np.log(data / beta)
+            if np.any(np.isnan(log_term)) or np.any(np.isinf(log_term)):
+                raise ValueError("Gagal menghitung log(data/beta) untuk Pareto.")
+            alpha = 1 / np.mean(log_term)
+            if np.isnan(alpha):
+                raise ValueError("Gagal menghitung alpha untuk Pareto.")
+            return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
+        
+        elif dist_name == 'expon':
+            theta = np.mean(data)
+            if np.isnan(theta):
+                raise ValueError("Gagal menghitung theta untuk Eksponensial.")
+            return (0, theta), {'theta': theta}
+        
+        elif dist_name == 'weibull_min':
+            shape, loc, scale = stats.weibull_min.fit(data)
+            if np.isnan(shape) or np.isnan(loc) or np.isnan(scale):
+                raise ValueError("Gagal menghitung parameter untuk Weibull.")
+            return (shape, loc, scale), {'shape': shape, 'loc': loc, 'scale': scale}
+        
+    except Exception as e:
+        st.error(f"Kesalahan saat menghitung parameter untuk {distribution_names.get(dist_name, dist_name)}: {str(e)}")
+        return None, None
 
 # Fungsi untuk menghitung metrik
 def calculate_metrics(data, dist_name, params, seed=42):
@@ -222,6 +241,8 @@ if uploaded_file is not None:
                     if dist_name in f.fitted_param:
                         # Gunakan parameter manual, bukan dari fitter
                         params, _ = calculate_manual_parameters(data, dist_name)
+                        if params is None:
+                            continue
                         metrics = calculate_metrics(data, dist_name, params, seed=42)
                         metrics_scores[dist_name] = metrics
                 
@@ -247,6 +268,9 @@ if uploaded_file is not None:
                 st.subheader("Informasi terkait Distribusi Terbaik")
                 best_dist_name, best_metrics = sorted_distributions[0]
                 best_params, best_params_display = calculate_manual_parameters(data, best_dist_name)
+                if best_params is None:
+                    st.error("Gagal menghitung parameter untuk distribusi terbaik.")
+                    st.stop()
                 friendly_name = distribution_names.get(best_dist_name, best_dist_name)
                 
                 # Membuat tabel untuk distribusi terbaik
@@ -287,13 +311,17 @@ if uploaded_file is not None:
                 dist_name = [k for k, v in distribution_names.items() if v == selected_dist][0]
                 params_simulasi, params_display = calculate_manual_parameters(data, dist_name)
                 
-                # Tampilkan parameter distribusi yang dipilih
-                st.subheader(f"Parameter untuk Distribusi {selected_dist}")
+                if params_simulasi is None or params_display is None:
+                    st.error(f"Tidak dapat melanjutkan simulasi karena parameter untuk {selected_dist} tidak valid.")
+                    st.stop()
+                
+                # Tampilkan parameter distribusi yang dipilih dengan format yang lebih jelas
+                st.markdown(f"### Parameter untuk Distribusi {selected_dist}")
                 params_df = pd.DataFrame({
                     'Parameter': list(params_display.keys()),
                     'Nilai': [f"{value:.4f}" for value in params_display.values()]
                 })
-                st.table(params_df)
+                st.dataframe(params_df, use_container_width=True, hide_index=True)
                 
                 # Slider untuk mengatur seed
                 seed_value = st.slider("Atur seed untuk Simulasi Monte Carlo", min_value=0, max_value=1000, value=42, step=1)
