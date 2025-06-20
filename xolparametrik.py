@@ -99,16 +99,31 @@ def fit_distributions(data, distributions, _timeout=60):
     f.fit()
     return f
 
-# Fungsi untuk simulasi Monte Carlo dengan seed
+# Fungsi untuk simulasi Monte Carlo dengan seed, menggunakan ppf untuk lognorm dan gamma
 def monte_carlo_simulation(dist_name, params, n_iterations=1000, seed=42):
     np.random.seed(seed)  # Mengatur seed untuk reproduksibilitas
     dist = getattr(stats, dist_name)
     
-    # Untuk Lognormal, paksa loc=0
+    # Generate data acak menggunakan inverse CDF untuk lognorm dan gamma
     if dist_name == 'lognorm':
-        params = (params[0], 0, params[2])  # s, loc=0, scale
-    
-    simulated_data = dist.rvs(*params, size=n_iterations)
+        # Parameter untuk lognorm: s (shape), loc, scale
+        s, loc, scale = params
+        # Pastikan loc=0 untuk data positif
+        loc = 0
+        # Generate probabilitas uniform [0,1]
+        uniform_data = np.random.uniform(0, 1, n_iterations)
+        # Gunakan ppf (inverse CDF) untuk menghasilkan data acak
+        simulated_data = dist.ppf(uniform_data, s, loc=loc, scale=scale)
+    elif dist_name == 'gamma':
+        # Parameter untuk gamma: a (shape), loc, scale
+        a, loc, scale = params
+        # Generate probabilitas uniform [0,1]
+        uniform_data = np.random.uniform(0, 1, n_iterations)
+        # Gunakan ppf (inverse CDF) untuk menghasilkan data acak
+        simulated_data = dist.ppf(uniform_data, a, loc=loc, scale=scale)
+    else:
+        # Untuk distribusi lain (weibull_min, pareto, expon), gunakan rvs
+        simulated_data = dist.rvs(*params, size=n_iterations)
     
     # Validasi hasil simulasi
     if np.any(simulated_data <= 0):
