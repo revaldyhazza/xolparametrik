@@ -276,7 +276,7 @@ if uploaded_file is not None:
                         str(best_params_display)
                     ]
                 })
-                st.table(best_dist_df)
+                st.dataframe(best_dist_df, hide_index=True)
 
                 # Visualisasi 3 distribusi terbaik
                 st.subheader("Plot Distribusi Terbaik")
