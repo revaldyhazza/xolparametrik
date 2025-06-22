@@ -16,12 +16,11 @@ distribution_names = {
     'weibull_min': 'Distribusi Weibull',
     'lognorm': 'Distribusi Lognormal',
     'gamma': 'Distribusi Gamma',
-    'pareto': 'Distribusi Pareto',
     'expon': 'Distribusi Eksponensial'
 }
 
-# Daftar distribusi yang akan digunakan
-distributions = ['weibull_min', 'lognorm', 'gamma', 'pareto', 'expon']
+# Daftar distribusi yang akan digunakan (Pareto dihapus)
+distributions = ['weibull_min', 'lognorm', 'gamma', 'expon']
 
 # Fungsi untuk menghitung parameter secara manual dengan error handling
 def calculate_manual_parameters(data, dist_name):
@@ -34,6 +33,7 @@ def calculate_manual_parameters(data, dist_name):
             sigma = np.std(log_data)
             if np.isnan(mu) or np.isnan(sigma):
                 raise ValueError("Gagal menghitung mu atau sigma untuk Lognormal.")
+            # Parameters align with Excel's LOGNORM.INV(p, mu, sigma), where mu is mean of ln(data) and sigma is std dev of ln(data)
             return (sigma, 0, np.exp(mu)), {'sigma': sigma, 'mu': mu}
         
         elif dist_name == 'gamma':
@@ -45,18 +45,6 @@ def calculate_manual_parameters(data, dist_name):
             beta = var_data / mean_data
             if np.isnan(alpha) or np.isnan(beta):
                 raise ValueError("Gagal menghitung alpha atau beta untuk Gamma.")
-            return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
-        
-        elif dist_name == 'pareto':
-            if np.any(data <= 0):
-                raise ValueError("Data mengandung nilai nol atau negatif, tidak valid untuk Pareto.")
-            beta = np.min(data)
-            log_term = np.log(data / beta)
-            if np.any(np.isnan(log_term)) or np.any(np.isinf(log_term)):
-                raise ValueError("Gagal menghitung log(data/beta) untuk Pareto.")
-            alpha = 1 / np.mean(log_term)
-            if np.isnan(alpha):
-                raise ValueError("Gagal menghitung alpha untuk Pareto.")
             return (alpha, 0, beta), {'alpha': alpha, 'beta': beta}
         
         elif dist_name == 'expon':
@@ -133,14 +121,11 @@ def load_data(uploaded_file):
 # Fungsi untuk fitting distribusi dengan caching
 @st.cache_data
 def fit_distributions(data, distributions, _timeout=60):
-    # Validasi data untuk Lognormal dan Pareto
+    # Validasi data untuk Lognormal
     valid_distributions = distributions.copy()
     if 'lognorm' in valid_distributions and np.any(data <= 0):
         st.warning("Data mengandung nilai nol atau negatif. Distribusi Lognormal hanya mendukung data positif. Menghapus Lognormal dari fitting.")
         valid_distributions.remove('lognorm')
-    if 'pareto' in valid_distributions and np.any(data <= 0):
-        st.warning("Data mengandung nilai nol atau negatif. Distribusi Pareto hanya mendukung data positif. Menghapus Pareto dari fitting.")
-        valid_distributions.remove('pareto')
     
     if not valid_distributions:
         st.error("Tidak ada distribusi yang valid untuk di-fit ke data ini.")
@@ -158,7 +143,7 @@ def monte_carlo_simulation(dist_name, params, n_iterations=1000, seed=42):
     simulated_data = dist.rvs(*params, size=n_iterations)
     
     # Validasi hasil simulasi
-    if np.any(simulated_data <= 0):
+    if dist_name == 'lognorm' and np.any(simulated_data <= 0):
         st.error(f"Simulasi Monte Carlo untuk {dist_name} menghasilkan nilai nol atau negatif. Ini tidak valid untuk distribusi ini.")
         return None
     
