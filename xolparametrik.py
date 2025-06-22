@@ -34,7 +34,7 @@ def calculate_manual_parameters(data, dist_name):
             sigma = np.std(log_data)
             if np.isnan(mu) or np.isnan(sigma):
                 raise ValueError("Gagal menghitung mu atau sigma untuk Lognormal.")
-            return (sigma, mu), {'sigma': sigma, 'mu': mu}  # Return sigma, mu for Lognormal simulation
+            return (sigma, 0, np.exp(mu)), {'sigma': sigma, 'mu': mu}
         
         elif dist_name == 'gamma':
             mean_data = np.mean(data)
@@ -81,21 +81,14 @@ def calculate_metrics(data, dist_name, params, seed=42):
     
     # Set seed untuk data acak
     np.random.seed(seed)
-    if dist_name == 'lognorm':
-        sigma, mu = params
-        fitted_data = np.exp(mu + sigma * np.random.normal(size=len(data)))
-    else:
-        fitted_data = dist.rvs(*params, size=len(data))
+    fitted_data = dist.rvs(*params, size=len(data))
     
     # RMSE
     rmse = np.sqrt(np.mean((data - fitted_data) ** 2))
     
     # Log-Likelihood
     try:
-        if dist_name == 'lognorm':
-            log_likelihood = np.sum(stats.lognorm.logpdf(data, sigma, loc=0, scale=np.exp(mu)))
-        else:
-            log_likelihood = np.sum(dist.logpdf(data, *params))
+        log_likelihood = np.sum(dist.logpdf(data, *params))
     except:
         log_likelihood = np.nan
     
@@ -160,13 +153,9 @@ def fit_distributions(data, distributions, _timeout=60):
 # Fungsi untuk simulasi Monte Carlo dengan seed
 def monte_carlo_simulation(dist_name, params, n_iterations=1000, seed=42):
     np.random.seed(seed)  # Mengatur seed untuk reproduksibilitas
-    if dist_name == 'lognorm':
-        # Lognormal: Generate using exp(mu + sigma * Z) like Excel NORM.INV
-        sigma, mu = params
-        simulated_data = np.exp(mu + sigma * np.random.normal(size=n_iterations))
-    else:
-        dist = getattr(stats, dist_name)
-        simulated_data = dist.rvs(*params, size=n_iterations)
+    dist = getattr(stats, dist_name)
+    
+    simulated_data = dist.rvs(*params, size=n_iterations)
     
     # Validasi hasil simulasi
     if np.any(simulated_data <= 0):
